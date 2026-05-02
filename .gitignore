@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Env files
+.env
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+
+# PDFs / uploads
+*.pdf
+
+.env
+.env.*

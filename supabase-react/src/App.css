@@ -1,0 +1,160 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #0f172a;
+  color: white;
+}
+
+.container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+.auth-box {
+  background: #1e293b;
+  padding: 30px;
+  border-radius: 10px;
+  width: 300px;
+  text-align: center;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+.auth-box h1 {
+  margin-bottom: 20px;
+}
+
+.input-field {
+  width: 100%;
+  padding: 10px;
+  margin: 10px 0;
+  border: none;
+  border-radius: 6px;
+  outline: none;
+}
+
+.input-field:focus {
+  border: 2px solid #3b82f6;
+}
+
+.btn {
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.signup {
+  background: #22c55e;
+  color: white;
+}
+
+.login {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn:hover {
+  opacity: 0.9;
+}
+
+
+
+
+/* Dashboard css */
+
+.dashboard-container {
+  display: flex;
+  height: 100vh;
+  background: #0f172a;
+  color: white;
+}
+
+.left-panel, .right-panel {
+  flex: 1;
+  padding: 30px;
+}
+
+.left-panel {
+  border-right: 1px solid #334155;
+}
+
+.right-panel {
+  background: #020617;
+}
+
+.results-box {
+  margin-top: 20px;
+  padding: 20px;
+  background: #1e293b;
+  border-radius: 10px;
+  min-height: 200px;
+}
+
+.upload {
+  background: #f59e0b;
+  color: white;
+  margin-top: 10px;
+}
+
+.logout {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: #ef4444;
+  color: white;
+}
+.analyze {
+  background: #3b82f6;
+  color: white;
+  margin-top: 10px;
+}
+
+.upload {
+  background: #f59e0b;
+  color: white;
+  margin-top: 10px;
+}
+
+/* Results css */
+
+.results-page {
+  width: 80%;
+  margin: auto;
+  color: white;
+}
+
+.result-card {
+  background: #1e293b;
+  padding: 20px;
+  margin: 15px 0;
+  border-radius: 10px;
+}
+
+pre {
+  background: #020617;
+  padding: 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+
+
+/* result css */
+.roadmap-card {
+  background: #0f172a;
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 10px;
+}
+
+.phase-card {
+  background: #1e293b;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 8px;
+}
