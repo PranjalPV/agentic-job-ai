@@ -30,6 +30,26 @@ export default function Dashboard({ user, setUser }) {
     }
   }
 
+
+const checkResult = async (userId) => {
+  let attempts = 0;
+
+  while (attempts < 30) {
+    const res = await fetch(`${import.meta.env.VITE_BACKEND_URL}/result/${userId}`);
+    const data = await res.json();
+
+    if (data.status === "done") {
+      return data.data;
+    }
+
+    console.log("⏳ Still processing...");
+    await new Promise((r) => setTimeout(r, 2000)); // wait 2 sec
+    attempts++;
+  }
+
+  throw new Error("Timeout waiting for result");
+};
+
   const handleAnalyze = async () => {
     if (!file) {
       alert("Upload resume first")
@@ -56,17 +76,18 @@ export default function Dashboard({ user, setUser }) {
         throw new Error("Failed to analyze")
       }
 
-      alert("Analysis complete ✅")
-
-      // 🔥 auto move to results
-      setShowResults(true)
+      alert("Analysis started 🚀 Please wait...");
+      await checkResult(user.id);
+      // force refresh
+      setShowResults(false);
+      setTimeout(() => setShowResults(true), 100);
 
     } catch (err) {
       console.error(err)
       alert("Error connecting to backend")
-    }
-
+    }finally {
     setLoading(false)
+    }
   }
 
 if (showResults) {

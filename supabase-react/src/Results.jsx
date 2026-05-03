@@ -5,11 +5,12 @@ import './App.css'
 export default function Results({ user, setShowResults }) {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(true)
-  useEffect(() => {
-    if (user) {
-      fetchResults()
-    }
-  }, [user])
+  // useEffect(() => {
+  //   if (user) {
+  //     fetchResults()
+  //   }
+  // }, [user])
+  useEffect(() => {fetchResults()}, [])
 
   const fetchResults = async () => {
     const { data, error } = await supabase

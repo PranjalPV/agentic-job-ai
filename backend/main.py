@@ -135,6 +135,7 @@ class AnalyzeRequest(BaseModel):
 #         print("============================\n")
 
 #         return {"status": "done", "data": filtered_result}
+
 import threading
 
 def run_full_pipeline(req):
@@ -205,3 +206,28 @@ async def analyze(req: AnalyzeRequest):
 
     return {"status": "processing"}
 
+@app.get("/result/{user_id}")
+def get_result(user_id: str):
+    try:
+        print("📥 Fetching latest result for:", user_id)
+
+        res = supabase.table("results") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("created_at", desc=True) \
+            .limit(1) \
+            .execute()
+
+        if not res.data:
+            print("⏳ No result yet")
+            return {"status": "pending"}
+
+        print("✅ Result found")
+        return {
+            "status": "done",
+            "data": res.data[0]["result_json"]
+        }
+
+    except Exception as e:
+        print("❌ ERROR FETCHING RESULT:", str(e))
+        return {"status": "error", "message": str(e)}
