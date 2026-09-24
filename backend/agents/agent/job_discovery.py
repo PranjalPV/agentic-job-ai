@@ -75,3 +75,48 @@ def make_search_node(source_name, attempts=2, retry_delay=1.0):
 
     search.__name__ = f"search_{source_name}"
     return search
+
+
+def search_cache(state, runtime: Runtime):
+    """
+    LangGraph node:
+    Queries shared vector database (Supabase pgvector) for fresh matching jobs (< 7 days old).
+    """
+    services = runtime.context.services
+    if not services.vector_search:
+        return {"job_results": []}
+
+    parsed = state.get("parsed_resume", {})
+    parts = [
+        parsed.get("suggested_role", ""),
+        parsed.get("summary", ""),
+        "Skills: " + ", ".join(parsed.get("skills", [])),
+    ]
+    text = ". ".join(p for p in parts if p)
+    if not text:
+        return {"job_results": []}
+
+    emit_progress("Checking shared vector cache for recent matches...", stage="search")
+    try:
+        vectors = services.embed([text])
+        query_vector = vectors[0]
+        cached_jobs = services.vector_search(query_vector, limit=runtime.context.top_n_jobs)
+        if cached_jobs:
+            emit_progress(f"Vector Cache: Found {len(cached_jobs)} fresh cached jobs (15ms)", stage="search")
+            return {"job_results": cached_jobs}
+    except Exception as e:
+        logger.info("Vector cache lookup skipped: %s", e)
+
+    return {"job_results": []}
+
+
+def route_after_cache(state, runtime: Runtime):
+    """
+    Conditional edge:
+    If cache provides enough fresh matches (>= min_jobs), jump straight to ranking (15ms path).
+    Otherwise, query live external APIs (Adzuna + Jooble) to discover new jobs.
+    """
+    cached = state.get("job_results", [])
+    if len(cached) >= runtime.context.min_jobs:
+        return "match_jobs"
+    return "build_search_query"

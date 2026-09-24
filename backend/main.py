@@ -90,7 +90,7 @@ def build_real_deps(settings: Settings) -> AppDeps:
     return AppDeps(
         graph=build_graph(checkpointer=make_checkpointer(settings)),
         letter_graph=build_cover_letter_graph(default_retry_policy()),
-        context=AgentContext(services=build_services(settings), location=settings.job_location),
+        context=AgentContext(services=build_services(settings, supabase_client=supabase), location=settings.job_location),
         verify_token=verify_token,
         download_resume=download_resume,
         persist_result=persist_result,

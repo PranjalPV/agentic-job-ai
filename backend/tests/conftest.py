@@ -147,6 +147,8 @@ class FakeServices:
             llm_text=self.llm_text,
             embed=fake_embed,
             job_sources={source: self.search(source) for source in sources},
+            vector_search=getattr(self, "vector_search", None),
+            cache_jobs=getattr(self, "cache_jobs", None),
         )
 
 

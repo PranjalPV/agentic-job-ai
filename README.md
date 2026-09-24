@@ -19,6 +19,7 @@
 ## 🌟 Key Features
 
 * 📄 **Intelligent PDF Resume Parsing**: Extracts structured skills, experience levels, and targeted roles using **Google Gemini** structured JSON schemas.
+* ⚡ **Shared Vector Cache (`pgvector`)**: High-speed retrieval tier using Supabase `pgvector` with HNSW indexing, 7-day sliding TTL auto-expiry, and LRU eviction capped at 5,000 jobs (~20MB storage).
 * 🔍 **Multi-Source Job Search**: Queries **Adzuna** and **Jooble** concurrently with real-time deduplication.
 * 🧠 **Semantic Embedding Matcher**: Computes dense vector representations and ranks jobs by cosine similarity with dynamic search widening if match density is low.
 * 🧭 **Skill Gap & Roadmap Generation**: Runs parallel subgraphs per top job to highlight missing skills and construct week-by-week learning milestones via **Groq**.
@@ -35,15 +36,20 @@ The core pipeline is built as a cyclic state graph with subgraphs and parallel f
 ```mermaid
 flowchart TD
     Start([📄 Upload PDF Resume]) --> ParseResume[parse_resume<br/>Gemini Structured Extraction]
-    ParseResume --> BuildQuery[build_search_query]
+    ParseResume --> SearchCache[search_cache<br/>⚡ Supabase pgvector HNSW Query]
     
-    subgraph JobSearch [Concurrent Multi-Source Discovery]
+    SearchCache -- "Fresh Cache Hit (>= 5 jobs)" --> MatchJobs[match_jobs<br/>Instant Ranking in 15ms]
+    SearchCache -- "Cache Miss / Refresh Needed" --> BuildQuery[build_search_query]
+    
+    subgraph JobSearch [Concurrent Live Discovery]
         BuildQuery --> SearchAdzuna[search_adzuna]
         BuildQuery --> SearchJooble[search_jooble]
     end
     
-    SearchAdzuna --> MatchJobs[match_jobs<br/>Dense Embedding Cosine Ranking]
+    SearchAdzuna --> MatchJobs
     SearchJooble --> MatchJobs
+    
+    MatchJobs -. "Cache newly discovered live jobs<br/>(Deduplicated + 7-day TTL + LRU Prune)" .-> CacheDB[(💾 Supabase pgvector Cache)]
     
     MatchJobs -- "Too few matches & attempts left" --> BuildQuery
     MatchJobs -- "Top 5 Matched Jobs" --> FanOutAnalysis{Parallel Fan-Out<br/>Send analyze_job}
@@ -86,6 +92,7 @@ flowchart TD
 | **Parallel Fan-Out (`Send`)** | Job analysis & Application Kit generation | Dispatches isolated tasks concurrently, cutting wall-clock execution time |
 | **Subgraphs** | `analyze_job`, `cover_letter` | Encapsulates multi-step logic into isolated, independently testable state machines |
 | **Reflection Loop** | Cover letter writer $\leftrightarrow$ reviewer | Self-correcting feedback cycle that eliminates hallucinations |
+| **Vector Cache Fast-Path** | `search_cache` $\rightarrow$ `route_after_cache` | Queries shared pgvector cache (<15ms) and bypasses live external APIs on cache hits |
 | **Human-in-the-Loop (`interrupt`)** | `select_jobs` node | Suspends execution state until candidate confirms target roles in UI |
 | **Persistent Checkpointer** | SQLite (local) / PostgreSQL (production) | Preserves pipeline state across reboots; crashed runs resume without redoing work |
 
@@ -151,6 +158,8 @@ create policy "Users read own resumes" on storage.objects
   for select to authenticated
   using (bucket_id = 'resumes' and (storage.foldername(name))[1] = auth.uid()::text);
 ```
+
+Next, run the shared vector cache migration script [`supabase-pgvector.sql`](supabase-pgvector.sql) in SQL Editor to activate `pgvector`, HNSW vector similarity search, and automated 7-day TTL/LRU pruning.
 
 #### 2. Backend Setup
 ```bash

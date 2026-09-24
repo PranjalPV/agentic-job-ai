@@ -5,15 +5,16 @@ Nodes never create API clients themselves: they receive a `Services`
 object through LangGraph's runtime context. The real implementations
 live here; tests pass fakes instead.
 """
+import hashlib
 import threading
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 from pydantic import BaseModel, Field
 
 from agents.errors import InvalidLLMOutput, UserFacingError
-from agents.utils import clean_text, safe_json_parse
+from agents.utils import clean_text, logger, safe_json_parse
 
 
 # (query, location) -> [{title, company, location, description, apply_link, source}]
@@ -27,6 +28,8 @@ class Services:
     llm_text: Callable[[str, str], str]       # (system, prompt) -> text
     embed: Callable[[List[str]], "object"]    # texts -> normalized vectors (n x d)
     job_sources: Dict[str, JobSearch] = field(default_factory=dict)
+    vector_search: Optional[Callable[[List[float], int], List[dict]]] = None
+    cache_jobs: Optional[Callable[[List[dict], Any], int]] = None
 
 
 # ----------------------------
@@ -262,7 +265,94 @@ class LocalEmbedder:
         return self._model.encode(texts, normalize_embeddings=True)
 
 
-def build_services(settings) -> Services:
+
+class SupabaseVectorStore:
+    """
+    Shared vector cache using Supabase pgvector with HNSW index,
+    7-day TTL expiration, and 5,000-job LRU eviction cap.
+    """
+
+    def __init__(self, supabase_client, max_capacity: int = 5000, ttl_days: int = 7):
+        self.client = supabase_client
+        self.max_capacity = max_capacity
+        self.ttl_days = ttl_days
+
+    def search(self, query_vector, limit: int = 5, match_threshold: float = 0.60) -> List[dict]:
+        if not self.client:
+            return []
+        try:
+            vec = [float(x) for x in query_vector]
+            res = self.client.rpc("match_cached_jobs", {
+                "query_embedding": vec,
+                "match_threshold": float(match_threshold),
+                "match_count": int(limit),
+                "max_age_days": int(self.ttl_days)
+            }).execute()
+            rows = res.data or []
+            return [
+                {
+                    "title": clean_text(row["title"]),
+                    "company": clean_text(row["company"]) or "Unknown",
+                    "location": clean_text(row.get("location")),
+                    "description": clean_text(row["description"]),
+                    "apply_link": row.get("apply_link"),
+                    "source": f"Cached ({row.get('source') or 'DB'})",
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            logger.info("Vector cache lookup skipped or table not initialized: %s", e)
+            return []
+
+    def save(self, jobs: List[dict], vectors) -> int:
+        if not self.client or not jobs:
+            return 0
+        try:
+            rows = []
+            for idx, job in enumerate(jobs):
+                title = clean_text(job.get("title"))
+                company = clean_text(job.get("company")) or "Unknown"
+                location = clean_text(job.get("location"))
+                desc = clean_text(job.get("description"))
+                if not title or not desc:
+                    continue
+
+                fp = hashlib.md5(f"{title.lower()}|{company.lower()}|{location.lower()}".encode()).hexdigest()
+                vec = [float(x) for x in vectors[idx]]
+                rows.append({
+                    "fingerprint": fp,
+                    "title": title,
+                    "company": company,
+                    "location": location,
+                    "description": desc,
+                    "apply_link": job.get("apply_link"),
+                    "source": job.get("source") or "Live",
+                    "embedding": vec,
+                })
+
+            if not rows:
+                return 0
+
+            # Upsert into cached_jobs
+            res = self.client.table("cached_jobs").upsert(rows, on_conflict="fingerprint").execute()
+            saved = len(res.data) if res and res.data else len(rows)
+
+            # Prune cache according to TTL and maximum capacity
+            try:
+                self.client.rpc("prune_cached_jobs", {
+                    "max_capacity": self.max_capacity,
+                    "max_age_days": self.ttl_days
+                }).execute()
+            except Exception:
+                pass
+
+            return saved
+        except Exception as e:
+            logger.info("Saving to vector cache skipped: %s", e)
+            return 0
+
+
+def build_services(settings, supabase_client=None) -> Services:
     llm = GroqLLM(settings.groq_api_key, settings.groq_model)
 
     job_sources: Dict[str, JobSearch] = {}
@@ -278,12 +368,16 @@ def build_services(settings) -> Services:
     else:
         embed = GeminiEmbedder(settings.gemini_api_key, settings.gemini_embedding_model)
 
+    vector_store = SupabaseVectorStore(supabase_client) if supabase_client else None
+
     return Services(
         parse_resume=GeminiResumeParser(settings.gemini_api_key, settings.gemini_model),
         llm_json=llm.json,
         llm_text=llm.text,
         embed=embed,
         job_sources=job_sources,
+        vector_search=vector_store.search if vector_store else None,
+        cache_jobs=vector_store.save if vector_store else None,
     )
 
 

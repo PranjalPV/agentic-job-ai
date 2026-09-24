@@ -4,7 +4,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import Send
 
 from agents.agent.job_discovery import search_queries
-from agents.utils import emit_progress
+from agents.utils import emit_progress, logger
 
 
 def dedupe_jobs(jobs):
@@ -54,6 +54,20 @@ def match_jobs(state, runtime: Runtime):
         job["id"] = rank
         job["score"] = round(float(scores[idx]), 4)
         ranked.append(job)
+
+    # Save newly discovered live jobs into shared vector database cache
+    if runtime.context.services.cache_jobs and jobs:
+        live_indices = [
+            i for i, job in enumerate(jobs)
+            if not (job.get("source") or "").startswith("Cached")
+        ]
+        if live_indices:
+            live_jobs = [jobs[i] for i in live_indices]
+            live_vectors = [vectors[i + 1] for i in live_indices]
+            try:
+                runtime.context.services.cache_jobs(live_jobs, live_vectors)
+            except Exception as e:
+                logger.info("Background cache write skipped: %s", e)
 
     emit_progress(f"Ranked {len(jobs)} jobs, keeping the top {len(ranked)}", stage="match")
     return {"ranked_jobs": ranked}

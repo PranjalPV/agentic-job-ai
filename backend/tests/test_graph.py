@@ -258,3 +258,20 @@ def test_parallel_job_analysis_is_faster_than_sequential():
     sequential_estimate = len(fake.calls) * latency
     assert len(fake.calls) == 13   # parse + 2 searches + 5 skill gaps + 5 roadmaps
     assert elapsed < sequential_estimate * 0.5
+
+
+def test_cache_hit_bypasses_external_apis():
+    fake = FakeServices()
+    # Mock vector cache returning 5 fresh jobs
+    fake.vector_search = lambda query_vec, limit: make_jobs("Cache", count=5)
+    context = AgentContext(services=fake.as_services())
+    graph = build_graph(checkpointer=InMemorySaver(), retry_policy=FAST_RETRY)
+
+    config = new_thread()
+    messages = run(graph, INPUT, config, context)
+
+    snapshot = graph.get_state(config)
+    assert snapshot.next == ("select_jobs",)
+    assert fake.count("search_adzuna") == 0 and fake.count("search_jooble") == 0
+    assert any("Vector Cache: Found 5 fresh cached jobs" in m for m in messages)
+    assert len(snapshot.values["ranked_jobs"]) == 5

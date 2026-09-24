@@ -7,7 +7,12 @@ from agents.agent.cover_letter import (
     route_after_review,
     write_cover_letter,
 )
-from agents.agent.job_discovery import build_search_query, make_search_node
+from agents.agent.job_discovery import (
+    build_search_query,
+    make_search_node,
+    route_after_cache,
+    search_cache,
+)
 from agents.agent.job_selection import route_after_selection, select_jobs
 from agents.agent.matcher import match_jobs, route_after_matching
 from agents.agent.resume_parser import parse_resume
@@ -93,6 +98,7 @@ def build_graph(checkpointer=None, retry_policy=None):
     graph = StateGraph(JobAgentState, AgentContext)
 
     graph.add_node("parse_resume", parse_resume, retry_policy=retry_policy)
+    graph.add_node("search_cache", search_cache)
     graph.add_node("build_search_query", build_search_query)
     for source in JOB_SOURCES:
         graph.add_node(f"search_{source}", make_search_node(source))
@@ -103,7 +109,12 @@ def build_graph(checkpointer=None, retry_policy=None):
     graph.add_node("tailor_resume", tailor_resume, retry_policy=retry_policy)
 
     graph.add_edge(START, "parse_resume")
-    graph.add_edge("parse_resume", "build_search_query")
+    graph.add_edge("parse_resume", "search_cache")
+    graph.add_conditional_edges(
+        "search_cache",
+        route_after_cache,
+        ["match_jobs", "build_search_query"],
+    )
     for source in JOB_SOURCES:
         graph.add_edge("build_search_query", f"search_{source}")
     # Wait for every source before ranking
