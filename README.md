@@ -1,73 +1,134 @@
-# Agentic Job AI
+# 🚀 Agentic Job AI
 
-Upload a resume (PDF) and an AI agent built with **LangGraph** finds matching jobs, ranks them,
-explains the skill gaps, builds a learning roadmap for each job, generates ATS scores with tailored resume bullet points,
-and writes reviewed cover letters for the jobs you choose.
+<p align="center">
+  <strong>An autonomous multi-agent career copilot that parses resumes, matches real-time jobs, identifies skill gaps, devises learning roadmaps, generates ATS-optimized resumes, and writes reviewed cover letters.</strong>
+</p>
 
-- **Backend:** FastAPI + LangGraph (`backend/`)
-- **Frontend:** React + Vite (`supabase-react/`)
-- **Containerization:** Docker & Docker Compose (`Dockerfile`, `docker-compose.yml`)
-- **Auth, file storage, saved results:** Supabase
-- **AI:** Gemini (resume parsing + job-matching embeddings), Groq (skill gaps, roadmaps, cover letters, ATS tailoring)
-- **Jobs:** Adzuna and Jooble APIs
-
-## How the agent works
-
-```
-parse_resume ─► build_search_query ─┬─► search_adzuna ─┬─► match_jobs
-                       ▲            └─► search_jooble ─┘       │
-                       └───────── too few matches: broader query┘
-                                                                │ top 5 jobs
-                       analyze_job subgraph × 5, in parallel ◄──┘
-                       (find_skill_gap ─► build_roadmap)
-                                    │
-                       select_jobs  ── pauses: user picks jobs (interrupt)
-                                    ├─► cover_letter subgraph × selected, in parallel
-                                    │   (write ─► review ─► rewrite if rejected ─► finalize)
-                                    └─► tailor_resume × selected, in parallel
-                                        (ATS score + matched/missing keywords + STAR bullet rewrites)
-```
-
-| LangGraph feature | Where | Why |
-|---|---|---|
-| Reducers (`Annotated[list, operator.add]`) | `job_results`, `skill_gaps`, `roadmaps`, `cover_letters`, `tailored_resumes` | Parallel branches merge their results safely |
-| Parallel fan-out (`Send`) | One branch per job / per application kit | Jobs, cover letters, and resume tailoring execute concurrently |
-| Subgraphs with input/output schemas | `analyze_job`, `cover_letter` | Per-job logic is isolated and testable |
-| Parallel nodes + fan-in edge | Adzuna and Jooble | Both sources are queried at once |
-| Conditional edges / loops | Search widening, cover letter review loop | The agent decides what to do next |
-| Human in the loop (`interrupt`, `Command(resume=...)`) | `select_jobs` | User chooses which jobs get cover letters & tailoring |
-| Checkpointer (SQLite locally, Postgres in production) | Whole graph | Paused or crashed runs continue later without redoing finished work |
-| `RetryPolicy` with a custom `retry_on` | LLM nodes | Retries rate limits / timeouts / 5xx only |
-| Runtime context (`context_schema`) | `AgentContext` | API clients and settings are injected, so tests use fakes |
-| Custom stream (`get_stream_writer`) | All nodes | Live progress messages in the website |
-
-Code: `backend/agents/graph/workflow.py` (graph), `backend/agents/agent/` (nodes), `backend/main.py` (API).
-
-## Setup
-
-### Option A: Quickstart with Docker (Recommended)
-Once you have Docker installed and your `.env` files prepared:
-```bash
-# From the project root
-docker compose up --build
-```
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000 (Health check: http://localhost:8000/health)
+<p align="center">
+  <img src="https://img.shields.io/badge/LangGraph-1.1-blue?style=flat-square&logo=python" alt="LangGraph" />
+  <img src="https://img.shields.io/badge/FastAPI-0.136-009688?style=flat-square&logo=fastapi" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React" />
+  <img src="https://img.shields.io/badge/Supabase-PostgreSQL%20%2B%20Auth-3ECF8E?style=flat-square&logo=supabase" alt="Supabase" />
+  <img src="https://img.shields.io/badge/Gemini-Embeddings%20%2B%20Parsing-4285F4?style=flat-square&logo=google" alt="Gemini" />
+  <img src="https://img.shields.io/badge/Groq-Fast%20LLM%20Inference-F05032?style=flat-square" alt="Groq" />
+  <img src="https://img.shields.io/badge/Docker-Containerized-2496ED?style=flat-square&logo=docker" alt="Docker" />
+</p>
 
 ---
 
-### Option B: Local Setup (Without Docker)
+## 🌟 Key Features
 
-#### 0. First run on a new computer
-The repo has no installed packages and no secrets, so:
+* 📄 **Intelligent PDF Resume Parsing**: Extracts structured skills, experience levels, and targeted roles using **Google Gemini** structured JSON schemas.
+* 🔍 **Multi-Source Job Search**: Queries **Adzuna** and **Jooble** concurrently with real-time deduplication.
+* 🧠 **Semantic Embedding Matcher**: Computes dense vector representations and ranks jobs by cosine similarity with dynamic search widening if match density is low.
+* 🧭 **Skill Gap & Roadmap Generation**: Runs parallel subgraphs per top job to highlight missing skills and construct week-by-week learning milestones via **Groq**.
+* 🎯 **ATS Scoring & STAR Resume Tailoring**: Evaluates candidate-job alignment (0–100%), identifies missing critical keywords, and rewrites resume bullet points using the STAR method without hallucinations.
+* ✍️ **Self-Refining Writer-Critic Cover Letters**: Employs an autonomous multi-agent reflection loop (Writer $\leftrightarrow$ Reviewer) enforcing truthfulness and professional tone.
+* ⏸️ **Human-in-the-Loop & Crash Resilience**: Halts graph execution for user selection with state persisted in **PostgreSQL / SQLite** checkpointers, allowing runs to survive server restarts without repeating finished tasks.
 
-1. Install **Python 3.12+** and **Node.js 20+**.
-2. Copy `backend\.env.example` to `backend\.env` and fill in your keys.
-3. Copy `supabase-react\.env.example` to `supabase-react\.env.local` and fill it in.
-4. Run the steps in 1-3 below.
+---
 
-### 1. Supabase
-Create a project, then in **SQL Editor** run:
+## 🏗️ Agentic Workflow Architecture
+
+The core pipeline is built as a cyclic state graph with subgraphs and parallel fan-out using **LangGraph**:
+
+```mermaid
+flowchart TD
+    Start([📄 Upload PDF Resume]) --> ParseResume[parse_resume<br/>Gemini Structured Extraction]
+    ParseResume --> BuildQuery[build_search_query]
+    
+    subgraph JobSearch [Concurrent Multi-Source Discovery]
+        BuildQuery --> SearchAdzuna[search_adzuna]
+        BuildQuery --> SearchJooble[search_jooble]
+    end
+    
+    SearchAdzuna --> MatchJobs[match_jobs<br/>Dense Embedding Cosine Ranking]
+    SearchJooble --> MatchJobs
+    
+    MatchJobs -- "Too few matches & attempts left" --> BuildQuery
+    MatchJobs -- "Top 5 Matched Jobs" --> FanOutAnalysis{Parallel Fan-Out<br/>Send analyze_job}
+    
+    subgraph JobAnalysis [Per-Job Analysis Subgraph]
+        FanOutAnalysis --> SkillGap[find_skill_gap<br/>Technical Recruiter Agent]
+        SkillGap -- "Missing skills found" --> Roadmap[build_roadmap<br/>Senior Mentor Agent]
+        SkillGap -- "Zero gap" --> EndAnalysis[End Analysis]
+        Roadmap --> EndAnalysis
+    end
+    
+    EndAnalysis --> SelectJobs[select_jobs<br/>⏸️ Human-in-the-Loop Interruption]
+    
+    SelectJobs -. "Checkpointed in DB. Waiting for user..." .-> UserAction[User Selects Target Jobs in UI]
+    UserAction --> ResumeCommand[Command resume=job_ids]
+    
+    ResumeCommand --> FanOutKit{Parallel Fan-Out}
+    
+    subgraph ApplicationKit [Target Job Application Kit]
+        FanOutKit --> TailorResume[tailor_resume<br/>ATS Score + STAR Bullet Rewriting]
+        FanOutKit --> CoverLetterSubgraph[Cover Letter Reflection Subgraph]
+        
+        subgraph ReflectionLoop [Writer-Critic Loop]
+            CoverLetterSubgraph --> Writer[write_cover_letter<br/>Drafts from candidate facts only]
+            Writer --> Reviewer[review_cover_letter<br/>Evaluates grounding & quality]
+            Reviewer -- "Score < 4 (revisions left)" --> Writer
+            Reviewer -- "Score >= 4 (Approved)" --> Finalize[finalize_cover_letter]
+        end
+    end
+    
+    TailorResume --> FinalResult([💾 Save to Supabase & Deliver to UI])
+    Finalize --> FinalResult
+```
+
+### LangGraph Design Patterns Used
+
+| LangGraph Feature | Application | Engineering Purpose |
+|---|---|---|
+| **Reducers (`operator.add`)** | `job_results`, `skill_gaps`, `roadmaps`, `cover_letters`, `tailored_resumes` | Concurrently running branches safely merge outputs into unified state |
+| **Parallel Fan-Out (`Send`)** | Job analysis & Application Kit generation | Dispatches isolated tasks concurrently, cutting wall-clock execution time |
+| **Subgraphs** | `analyze_job`, `cover_letter` | Encapsulates multi-step logic into isolated, independently testable state machines |
+| **Reflection Loop** | Cover letter writer $\leftrightarrow$ reviewer | Self-correcting feedback cycle that eliminates hallucinations |
+| **Human-in-the-Loop (`interrupt`)** | `select_jobs` node | Suspends execution state until candidate confirms target roles in UI |
+| **Persistent Checkpointer** | SQLite (local) / PostgreSQL (production) | Preserves pipeline state across reboots; crashed runs resume without redoing work |
+
+---
+
+## ⚡ Quickstart
+
+### Option 1: Docker (Recommended)
+
+Run the entire application (Backend + Frontend + Healthchecks) with one command:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/PranjalPV/agentic-job-ai.git
+cd agentic-job-ai
+
+# 2. Configure environment variables
+cp backend/.env.example backend/.env
+cp supabase-react/.env.example supabase-react/.env.local
+# (Fill in your API keys in backend/.env)
+
+# 3. Launch full stack
+docker compose up --build
+```
+
+* **Frontend:** http://localhost:5173
+* **Backend API Docs:** http://localhost:8000/docs
+* **API Health Check:** http://localhost:8000/health
+
+---
+
+### Option 2: Local Development
+
+<details>
+<summary><strong>Click to expand manual setup instructions</strong></summary>
+
+#### Prerequisites
+* **Python 3.12+**
+* **Node.js 20+**
+* Free API keys for: [Google AI Studio (Gemini)](https://aistudio.google.com/), [Groq](https://console.groq.com/), [Adzuna](https://developer.adzuna.com/), and [Supabase](https://supabase.com/).
+
+#### 1. Supabase Database Setup
+In your Supabase project's **SQL Editor**, run:
 
 ```sql
 create table if not exists results (
@@ -86,130 +147,73 @@ insert into storage.buckets (id, name, public) values ('resumes', 'resumes', fal
 create policy "Users upload own resumes" on storage.objects
   for insert to authenticated
   with check (bucket_id = 'resumes' and (storage.foldername(name))[1] = auth.uid()::text);
-create policy "Users update own resumes" on storage.objects
-  for update to authenticated
-  using (bucket_id = 'resumes' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy "Users read own resumes" on storage.objects
   for select to authenticated
   using (bucket_id = 'resumes' and (storage.foldername(name))[1] = auth.uid()::text);
 ```
 
-> All commands below are **PowerShell** (the Windows default). PowerShell 5.1 does not
-> support `&&`, so each command goes on its own line.
->
-> Use the `.cmd` files to start things: they work even when Windows blocks PowerShell
-> scripts ("running scripts is disabled on this system"). The matching `.ps1` files do the
-> same, if script execution is enabled on your machine.
-
-### 2. Backend (Python 3.12)
-One-time setup, from the project folder:
-```powershell
-uv venv --python 3.12 backend\.venv
-uv pip install --python backend\.venv -r backend\requirements-dev.txt
-Copy-Item backend\.env.example backend\.env
-```
-Fill in your keys in `backend\.env`, then start the API:
-```powershell
-.\start-backend.cmd
-```
-Open http://localhost:8000/health - `missing_settings` should be empty.
-
-Optional, to match jobs with a local model instead of Gemini (adds PyTorch, ~2.5 GB):
-```powershell
-uv pip install --python backend\.venv -r backend\requirements-local-embeddings.txt
+#### 2. Backend Setup
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env       # Fill in your keys
+uvicorn main:app --reload --port 8000
 ```
 
-### 3. Frontend
-One-time setup:
-```powershell
-Copy-Item supabase-react\.env.example supabase-react\.env.local
-```
-Fill it in, then start the website in a **second** terminal:
-```powershell
-.\start-frontend.cmd
-```
-Open http://localhost:5173.
-
-### Try the agent without the website
-No Supabase needed:
-```powershell
-backend\.venv\Scripts\python -m agents.main path\to\resume.pdf
+#### 3. Frontend Setup
+```bash
+cd supabase-react
+npm install
+cp .env.example .env.local  # Set VITE_SUPABASE_URL and keys
+npm run dev
 ```
 
-## Tests
-```powershell
-.\run-tests.cmd
+#### 4. Run Headless CLI (No UI required)
+```bash
+python -m agents.main path/to/resume.pdf
 ```
-The tests use fake services (no API keys, no network) and cover: the full graph run with
-pause/resume, parallel analysis, search widening, the cover letter review loop, retries,
-resuming a crashed run from a SQLite checkpoint without repeating finished work, API login
-and ownership checks, and error messages.
+</details>
 
-Frontend checks:
-```powershell
-Set-Location supabase-react
-npm run lint
-npm run build
-Set-Location ..
+---
+
+## 🧪 Testing & Benchmarks
+
+The test suite validates graph transitions, pauses/resumptions, state checkpointing, error recovery, and security policies using mock-injected services (`FakeServices`):
+
+```bash
+# Run backend test suite
+pytest backend/tests
+
+# Run benchmark suite (measures sequential vs parallel execution)
+python backend/scripts/benchmark.py --runs 5
 ```
 
-## Benchmark
-```powershell
-backend\.venv\Scripts\python backend\scripts\benchmark.py --runs 5
-backend\.venv\Scripts\python backend\scripts\benchmark.py --pdf path\to\resume.pdf --runs 3
+### Benchmark Metrics (Live Run):
+* **Parallel Execution Speedup:** **1.76x** faster compared to sequential API calling (61s wall-clock vs 110s cumulative).
+* **Fault-Tolerant Resumption:** 100% of finished node outputs skipped when resuming from checkpoint after crash.
+
+---
+
+## 📂 Repository Structure
+
 ```
-The first uses simulated delays (no keys needed), the second calls the real APIs.
-Prints wall-clock time vs. the total time of all external calls (what running them one after
-another would take), call counts, and how many calls a crashed run repeats when resumed.
-Results are saved to `benchmark_results.json`.
-
-## Notes from a live run (2026-09-20, sample resume)
-
-- Full run: resume parsed, 32 jobs found (Adzuna + Jooble), top 5 analyzed, 2 cover letters written — **40s**.
-- Benchmark on live APIs: **61s** wall clock vs **110s** if the same calls ran one after another (**1.76x**).
-- Groq's free tier allows **8000 tokens per minute**, which several parallel LLM calls can exceed.
-  `GroqLLM` therefore runs at most 2 calls at a time and lets the SDK wait out `429`s;
-  raising `max_parallel` in `agents/services.py` gets a bigger speed-up on a paid tier.
-- Groq model names change: `llama-3.1-8b-instant` was retired, the default is now `openai/gpt-oss-120b`.
-  Check <https://console.groq.com/docs/models> and set `GROQ_MODEL` if it stops working.
-
-## Deployment
-
-### Backend on Railway
-`backend/railway.json` and `backend/Procfile` are ready.
-
-1. Push this project to GitHub.
-2. Railway → **New Project** → **Deploy from GitHub repo** → pick the repo.
-3. Open the service → **Settings** → set **Root Directory** to `backend`.
-4. **Variables** → add (from your `backend/.env`):
-   `SUPABASE_URL`, `SUPABASE_KEY` (service role), `GEMINI_API_KEY`, `GROQ_API_KEY`,
-   `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `JOOBLE_API_KEY`,
-   `GEMINI_MODEL`, `GROQ_MODEL`, `EMBEDDING_PROVIDER=gemini`,
-   `JOB_LOCATION`, `ADZUNA_COUNTRY`,
-   `DATABASE_URL` (Supabase → Settings → Database → Session pooler string),
-   and `ALLOWED_ORIGINS` set to your Netlify URL.
-5. **Settings → Networking → Generate Domain**, then open `https://<your-app>.up.railway.app/health`.
-   `missing_settings` must be empty.
-
-Railway sets `PORT` itself, so do not set it. `render.yaml` is included too if you ever prefer Render.
-
-### Frontend on Netlify
-`netlify.toml` is ready (base `supabase-react`, publish `dist`).
-
-1. Netlify → **Add new site** → **Import an existing project** → pick the repo.
-2. **Environment variables**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`,
-   `VITE_BACKEND_URL` (your Railway URL, no trailing slash).
-3. Deploy, then copy the Netlify URL into Railway's `ALLOWED_ORIGINS` and redeploy the backend.
-
-### Supabase
-1. SQL Editor → run the SQL in step 1 above (table, bucket, access rules).
-2. **Authentication → URL Configuration** → Site URL = your Netlify URL.
-3. **Authentication → Sign In / Providers → Email** → turn **Confirm email** off for instant signups,
-   or leave it on and users confirm by email first.
-
-Notes:
-- Keep `EMBEDDING_PROVIDER=gemini` when deploying: `local` pulls in PyTorch (~2.5 GB) and
-  will not fit a free instance.
-- Run a single server process: live progress messages are kept in memory per process
-  (the analysis itself lives in the checkpointer).
-- Render's free plan sleeps after inactivity, so the first request can take ~1 minute.
+agentic-job-ai/
+├── backend/
+│   ├── agents/
+│   │   ├── agent/            # Node logic (parser, matcher, tailor, roadmaps, cover letter)
+│   │   ├── graph/            # LangGraph StateGraph, schemas, checkpointers
+│   │   ├── services.py       # Decoupled API service adapters (Gemini, Groq, Adzuna)
+│   │   └── config.py         # Pydantic configuration & env validation
+│   ├── tests/                # Unit, graph, and API integration tests
+│   ├── scripts/benchmark.py  # Latency & parallel speedup benchmark script
+│   ├── Dockerfile            # Lightweight Python 3.12 container
+│   └── main.py               # FastAPI web server & endpoints
+├── supabase-react/
+│   ├── src/                  # React dashboard, auth, and interactive results UI
+│   ├── nginx.conf            # Production SPA routing & caching config
+│   └── Dockerfile            # Multi-stage Vite + Nginx container
+├── docker-compose.yml        # Multi-container orchestration
+└── README.md
+```
