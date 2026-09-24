@@ -39,3 +39,21 @@ services:
         value: India
       - key: ADZUNA_COUNTRY
         value: in
+
+  - type: web
+    name: agentic-job-ai-ui
+    runtime: static
+    rootDir: supabase-react
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: VITE_BACKEND_URL
+        sync: false
