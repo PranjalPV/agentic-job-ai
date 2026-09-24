@@ -1,0 +1,3 @@
+# Optional: EMBEDDING_PROVIDER=local (adds PyTorch, ~2.5 GB installed)
+-r requirements.txt
+sentence-transformers==5.4.1

@@ -1,0 +1,10 @@
+[build]
+  base = "supabase-react"
+  command = "npm run build"
+  publish = "dist"
+
+# Single-page app: every path serves index.html (also in public/_redirects)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import Auth from './Auth'
 import Dashboard from './Dashboard'
+import './App.css'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -16,7 +17,7 @@ function App() {
 
     getUser()
 
-    // 🔥 Listen for login/logout changes
+    // Listen for login/logout changes
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user || null)
@@ -29,7 +30,14 @@ function App() {
   }, [])
   
   if (loading) {
-    return <p>Loading...</p>
+    return (
+      <div className="auth-screen">
+        <div className="progress-head">
+          <span className="spinner" />
+          <strong>Loading…</strong>
+        </div>
+      </div>
+    )
   }
 
   return user ? (

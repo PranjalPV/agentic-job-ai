@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: agentic-job-ai-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.13"
+      # Secrets: set these in the Render dashboard (never commit them)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY          # service role key
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ADZUNA_APP_ID
+        sync: false
+      - key: ADZUNA_APP_KEY
+        sync: false
+      - key: JOOBLE_API_KEY
+        sync: false
+      - key: DATABASE_URL          # Supabase session pooler string: keeps paused runs after a restart
+        sync: false
+      - key: ALLOWED_ORIGINS       # your Netlify site, e.g. https://agentic-job-ai.netlify.app
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3-flash-preview
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: EMBEDDING_PROVIDER    # "gemini" keeps the server small enough for the free plan
+        value: gemini
+      - key: JOB_LOCATION
+        value: India
+      - key: ADZUNA_COUNTRY
+        value: in

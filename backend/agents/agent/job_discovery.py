@@ -1,195 +1,77 @@
-import os
-import json
-import requests
-from dotenv import load_dotenv
-# from jobspy import scrape_jobs 
+import time
 
-load_dotenv()
+from langgraph.runtime import Runtime
 
-ADZUNA_APP_ID = os.getenv("ADZUNA_APP_ID")
-ADZUNA_APP_KEY = os.getenv("ADZUNA_APP_KEY")
-JOOBLE_API_KEY = os.getenv("JOOBLE_API_KEY")
+from agents.errors import UserFacingError, is_transient
+from agents.utils import emit_progress, logger
 
 
-def discover_jobs(state):
-    if "parsed_resume" not in state:
-        print("❌ No parsed resume found.")
-        return state
+def search_queries(parsed_resume):
+    """
+    Search queries from most specific to broadest.
+    Each loop back from the matcher uses the next one.
+    """
+    role = (parsed_resume.get("suggested_role") or "").strip()
+    skills = [s.strip() for s in parsed_resume.get("skills", []) if s and s.strip()]
 
-    if "resume_text" not in state:
-        print("❌ resume_text missing.")
-        return state
+    candidates = []
+    if role and skills:
+        candidates.append(f"{role} {skills[0]}")
+    if role:
+        candidates.append(role)
+    if skills:
+        candidates.append(" ".join(skills[:2]))
+        candidates.append(skills[0])
 
-    parsed_resume = state["parsed_resume"]
-    skills = parsed_resume.get("skills", [])
-    summary = parsed_resume.get("summary", "")
+    unique = []
+    for query in candidates:
+        if query.lower() not in [q.lower() for q in unique]:
+            unique.append(query)
+    return unique
 
+
+def build_search_query(state):
     """
     LangGraph node:
-    Takes parsed resume → searches jobs using
-    Adzuna + Jooble + JobSpy
+    Pick the next search query (broader on every retry)
+    """
+    queries = search_queries(state.get("parsed_resume", {}))
+    if not queries:
+        raise UserFacingError("We couldn't find any skills or job titles in your resume.")
+
+    attempt = state.get("search_attempts", 0)
+    query = queries[min(attempt, len(queries) - 1)]
+
+    emit_progress(f'Searching jobs for "{query}"...', stage="search")
+    return {"search_query": query, "search_attempts": attempt + 1}
+
+
+def make_search_node(source_name, attempts=2, retry_delay=1.0):
+    """
+    LangGraph node factory:
+    Query one job source. Sources are optional, so a failing source
+    returns no jobs instead of failing the whole analysis.
     """
 
-    # ---- Build search query from resume ----
-    # simple + effective
-    search_query = " ".join(skills[:5]) or summary
+    def search(state, runtime: Runtime):
+        source = runtime.context.services.job_sources.get(source_name)
+        if source is None:
+            logger.warning("%s is not configured, skipping", source_name)
+            return {"job_results": []}
 
-    all_jobs = []
+        query = state["search_query"]
+        for attempt in range(1, attempts + 1):
+            try:
+                jobs = source(query, runtime.context.location)
+                emit_progress(f"{source_name.title()}: {len(jobs)} jobs", stage="search")
+                return {"job_results": jobs}
+            except Exception as e:
+                if attempt < attempts and is_transient(e):
+                    time.sleep(retry_delay)
+                    continue
+                logger.warning("%s search failed: %s", source_name, e)
+                emit_progress(f"{source_name.title()} is unavailable right now", stage="search")
+                return {"job_results": []}
 
-    # =========================
-    # 1️⃣ ADZUNA
-    # =========================
-    try:
-        url = "https://api.adzuna.com/v1/api/jobs/in/search/1"
-        params = {
-            "app_id": ADZUNA_APP_ID,
-            "app_key": ADZUNA_APP_KEY,
-            "what": search_query,
-            "content-type": "application/json"
-        }
-
-        res = requests.get(url, params=params)
-        res.raise_for_status()
-
-        for job in res.json().get("results", []):
-            all_jobs.append({
-                "title": job["title"],
-                "company": job["company"]["display_name"],
-                "location": job["location"]["display_name"],
-                "description": job["description"],
-                "apply_link": job["redirect_url"],
-                "source": "Adzuna"
-            })
-
-    except Exception as e:
-        print(f"⚠️ Adzuna error: {e}")
-
-    # =========================
-    # 2️⃣ JOOBLE
-    # =========================
-    try:
-        url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
-        payload = {
-            "keywords": search_query,
-            "location": "India"
-        }
-
-        res = requests.post(
-            url,
-            headers={"Content-Type": "application/json"},
-            data=json.dumps(payload)
-        )
-        res.raise_for_status()
-
-        for job in res.json().get("jobs", []):
-            all_jobs.append({
-                "title": job["title"],
-                "company": job.get("company", "Unknown"),
-                "location": job.get("location"),
-                "description": job.get("snippet", ""),
-                "apply_link": job["link"],
-                "source": "Jooble"
-            })
-
-    except Exception as e:
-        print(f"⚠️ Jooble error: {e}")
-
-    # =========================
-    # 3️⃣ PYTHON-JOBSPY
-    # =========================
-    # try:
-    #     df = scrape_jobs(
-    #         site_name=["indeed", "glassdoor"],
-    #         search_term=search_query,
-    #         location="India",
-    #         results_wanted=10
-    #     )
-
-    #     for _, row in df.iterrows():
-    #         all_jobs.append({
-    #             "title": row.get("job_title"),
-    #             "company": row.get("company"),
-    #             "location": row.get("location"),
-    #             "description": row.get("description"),
-    #             "apply_link": row.get("job_url"),
-    #             "source": "JobSpy"
-    #         })
-
-    # except Exception as e:
-    #     print(f"⚠️ JobSpy error: {e}")
-
-    # state["job_results"] = all_jobs
-    # ---- Deduplicate ----
-    unique = {}
-    for job in all_jobs:
-        key = (job["title"], job["company"])
-        unique[key] = job
-
-    state["job_results"] = list(unique.values())
-    return state
-
-# if __name__ == "__main__":
-#     print("\n🧪 Running discover_jobs local test\n")
-
-#     mock_state = {
-#         "resume_text": "Python NLP",
-#         "parsed_resume": {
-#             "skills": ["Python", "NLP"],
-#             "summary": "AI Engineer"
-#         }
-#     }
-
-#     result = discover_jobs(mock_state)
-
-#     jobs = result.get("job_results", [])
-
-#     print(f"\n✅ Total jobs fetched: {len(jobs)}")
-
-#     # ---- Count jobs per source ----
-#     source_count = {
-#         "Adzuna": 0,
-#         "Jooble": 0,
-#         "JobSpy": 0
-#     }
-
-#     for job in jobs:
-#         source = job.get("source")
-#         if source in source_count:
-#             source_count[source] += 1
-
-#     print("\n📊 Jobs per source:")
-#     for source, count in source_count.items():
-#         status = "✅ WORKING" if count > 0 else "❌ NOT WORKING"
-#         print(f"{source}: {count} → {status}")
-
-#     # ---- Show sample jobs from each source ----
-#     print("\n🔍 Sample jobs from each source:\n")
-
-#     seen = set()
-#     for job in jobs:
-#         src = job["source"]
-#         if src not in seen:
-#             print(f"[{src}] {job['title']} | {job['company']}")
-#             seen.add(src)
-
-#     print("\n🧠 Test completed.")
-
-#     print("🧪 Running local test for discover_jobs...\n")
-
-#     mock_state = {
-#         "resume_text": "Python NLP",
-#         "parsed_resume": {
-#             "skills": ["Python", "NLP"],
-#             "summary": "AI Engineer"
-#         }
-#     }
-
-#     result = discover_jobs(mock_state)
-
-#     jobs = result.get("job_results", [])
-
-#     print(f"✅ Total jobs found: {len(jobs)}\n")
-
-#     for job in jobs[:5]:
-#         print(f"1.) {job['title']} | {job['company']} | {job['source']} | {job['location']} | {job['apply_link']}")
-
+    search.__name__ = f"search_{source_name}"
+    return search

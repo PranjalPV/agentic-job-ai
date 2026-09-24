@@ -1,80 +1,29 @@
-import os
-import fitz  # PyMuPDF
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field
-from google import genai
+from langgraph.runtime import Runtime
 
-load_dotenv()
+from agents.errors import UserFacingError
+from agents.utils import emit_progress
 
-class ResumeParsedData(BaseModel):
-    skills: list[str] = Field(description="A list of technical skills.")
-    experience_level: str = Field(description="Junior, Mid, or Senior.")
-    summary: str = Field(description="Short summary.")
 
-def extract_text_from_pdf(pdf_path):
-    text = ""
-    try:
-        with fitz.open(pdf_path) as doc:
-            for page in doc:
-                text += page.get_text()
-        return text
-    except Exception as e:
-        print(f"❌ PDF Error: {e}")
-        return ""
-
-def parse_resume(state):
-    # 1. Check if API Key exists
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("❌ ERROR: GEMINI_API_KEY not found in .env file!")
-        return state
-
-    client = genai.Client(api_key=api_key)
-    pdf_path = state.get("resume_pdf_path")
-    resume_text = extract_text_from_pdf(pdf_path)
-
+def parse_resume(state, runtime: Runtime):
+    """
+    LangGraph node:
+    Resume text -> structured profile (Gemini)
+    """
+    resume_text = (state.get("resume_text") or "").strip()
     if not resume_text:
-        print("❌ ERROR: Resume text is empty. Check your PDF path.")
-        return state
+        raise UserFacingError("The uploaded resume has no readable text.")
 
-    try:
-        # 2. Call Gemini
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=f"Extract skills from this resume:\n\n{resume_text}",
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": ResumeParsedData,
-            },
+    emit_progress("Reading your resume...", stage="parse_resume")
+    parsed = runtime.context.services.parse_resume(resume_text)
+
+    if not parsed.get("skills") and not parsed.get("suggested_role"):
+        raise UserFacingError(
+            "We couldn't find any skills or job titles in your resume."
         )
 
-        # 3. Check if response is valid
-        if response.parsed:
-            state["resume_text"] = resume_text
-            state["parsed_resume"] = {
-                "skills": response.parsed.skills,
-                "experience_level": response.parsed.experience_level,
-                "summary": response.parsed.summary
-            }
-        else:
-            print("⚠️ Gemini returned an empty response. Check if the prompt was blocked.")
-
-    except Exception as e:
-        print(f"❌ Gemini API Error: {e}")
-    return state
-
-# --- Main Execution ---
-# if __name__ == "__main__":
-#     # Ensure this path is correct for your Windows machine
-#     path = r"D:\PV\agentic-job-ai\resume_pdf\pranjal resume 1.0.pdf"
-    
-#     initial_state = {"resume_pdf_path": path}
-#     result_state = parse_resume(initial_state)
-    
-#     # Use .get() to avoid the KeyError if parsing failed
-#     parsed = result_state.get("parsed_resume")
-#     if parsed:
-#         print("--- Extracted Skills ---")
-#         print(parsed["skills"])
-#     else:
-#         print("❌ Could not extract skills. Check the error messages above.")
+    emit_progress(
+        f"Found {len(parsed.get('skills', []))} skills"
+        + (f", best fit: {parsed['suggested_role']}" if parsed.get("suggested_role") else ""),
+        stage="parse_resume",
+    )
+    return {"parsed_resume": parsed}
