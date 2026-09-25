@@ -93,15 +93,12 @@ def get_runtime(runtime: Any = None) -> Runtime:
     return Runtime(runtime)
 
 
-# Register shims for 'langgraph.runtime' and 'langgraph.config' for backward compatibility
-shim_runtime = types.ModuleType("langgraph.runtime")
-shim_runtime.Runtime = Runtime
-shim_runtime.get_runtime = get_runtime
-sys.modules["langgraph.runtime"] = shim_runtime
-
-shim_config = types.ModuleType("langgraph.config")
-shim_config.get_stream_writer = get_active_stream_writer
-sys.modules["langgraph.config"] = shim_config
+# Register shim for 'langgraph.runtime' only if missing
+if "langgraph.runtime" not in sys.modules:
+    shim_runtime = types.ModuleType("langgraph.runtime")
+    shim_runtime.Runtime = Runtime
+    shim_runtime.get_runtime = get_runtime
+    sys.modules["langgraph.runtime"] = shim_runtime
 
 # Ensure StateSnapshot.interrupts exists on langgraph.types.StateSnapshot
 try:
