@@ -93,13 +93,6 @@ def get_runtime(runtime: Any = None) -> Runtime:
     return Runtime(runtime)
 
 
-# Register shim for 'langgraph.runtime' only if missing
-if "langgraph.runtime" not in sys.modules:
-    shim_runtime = types.ModuleType("langgraph.runtime")
-    shim_runtime.Runtime = Runtime
-    shim_runtime.get_runtime = get_runtime
-    sys.modules["langgraph.runtime"] = shim_runtime
-
 # Ensure StateSnapshot.interrupts exists on langgraph.types.StateSnapshot
 try:
     from langgraph.types import StateSnapshot
