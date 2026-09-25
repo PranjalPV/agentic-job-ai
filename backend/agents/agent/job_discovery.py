@@ -1,7 +1,6 @@
 import time
 
-from langgraph.runtime import Runtime
-
+from agents.graph.runtime import Runtime, get_runtime
 from agents.errors import UserFacingError, is_transient
 from agents.utils import emit_progress, logger
 
@@ -53,8 +52,9 @@ def make_search_node(source_name, attempts=2, retry_delay=1.0):
     returns no jobs instead of failing the whole analysis.
     """
 
-    def search(state, runtime: Runtime):
-        source = runtime.context.services.job_sources.get(source_name)
+    def search(state, runtime: Runtime = None):
+        r = get_runtime(runtime)
+        source = r.context.services.job_sources.get(source_name)
         if source is None:
             logger.warning("%s is not configured, skipping", source_name)
             return {"job_results": []}
@@ -62,7 +62,7 @@ def make_search_node(source_name, attempts=2, retry_delay=1.0):
         query = state["search_query"]
         for attempt in range(1, attempts + 1):
             try:
-                jobs = source(query, runtime.context.location)
+                jobs = source(query, r.context.location)
                 emit_progress(f"{source_name.title()}: {len(jobs)} jobs", stage="search")
                 return {"job_results": jobs}
             except Exception as e:
@@ -77,12 +77,13 @@ def make_search_node(source_name, attempts=2, retry_delay=1.0):
     return search
 
 
-def search_cache(state, runtime: Runtime):
+def search_cache(state, runtime: Runtime = None):
     """
     LangGraph node:
     Queries shared vector database (Supabase pgvector) for fresh matching jobs (< 7 days old).
     """
-    services = runtime.context.services
+    r = get_runtime(runtime)
+    services = r.context.services
     if not services.vector_search:
         return {"job_results": []}
 
@@ -100,7 +101,7 @@ def search_cache(state, runtime: Runtime):
     try:
         vectors = services.embed([text])
         query_vector = vectors[0]
-        cached_jobs = services.vector_search(query_vector, limit=runtime.context.top_n_jobs)
+        cached_jobs = services.vector_search(query_vector, limit=r.context.top_n_jobs)
         if cached_jobs:
             emit_progress(f"Vector Cache: Found {len(cached_jobs)} fresh cached jobs (15ms)", stage="search")
             return {"job_results": cached_jobs}
@@ -110,13 +111,14 @@ def search_cache(state, runtime: Runtime):
     return {"job_results": []}
 
 
-def route_after_cache(state, runtime: Runtime):
+def route_after_cache(state, runtime: Runtime = None):
     """
     Conditional edge:
     If cache provides enough fresh matches (>= min_jobs), jump straight to ranking (15ms path).
     Otherwise, query live external APIs (Adzuna + Jooble) to discover new jobs.
     """
+    r = get_runtime(runtime)
     cached = state.get("job_results", [])
-    if len(cached) >= runtime.context.min_jobs:
+    if len(cached) >= r.context.min_jobs:
         return "match_jobs"
     return "build_search_query"

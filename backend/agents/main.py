@@ -18,6 +18,7 @@ from langgraph.types import Command
 
 from agents.config import Settings
 from agents.errors import UserFacingError
+from agents.graph.runtime import set_current_context
 from agents.graph.state import AgentContext
 from agents.graph.workflow import build_graph
 from agents.results import build_result
@@ -25,8 +26,9 @@ from agents.services import build_services, extract_text_from_pdf_bytes
 
 
 def stream(graph, graph_input, config, context):
+    set_current_context(context)
     for _namespace, mode, chunk in graph.stream(
-        graph_input, config, context=context, stream_mode=["custom"], subgraphs=True
+        graph_input, config, stream_mode=["custom"], subgraphs=True
     ):
         if mode == "custom" and isinstance(chunk, dict) and chunk.get("message"):
             print(f"  • {chunk['message']}")
@@ -60,7 +62,7 @@ def main():
 
     graph = build_graph(checkpointer=InMemorySaver())
     context = AgentContext(services=build_services(settings), location=settings.job_location)
-    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    config = {"configurable": {"thread_id": str(uuid.uuid4()), "context": context}}
 
     started = time.perf_counter()
     try:

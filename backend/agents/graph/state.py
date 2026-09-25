@@ -1,6 +1,6 @@
 import operator
 from dataclasses import dataclass
-from typing import Annotated, Any, Dict, List, TypedDict
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 from agents.services import Services
 
@@ -16,6 +16,7 @@ class AgentContext:
     min_jobs: int = 3            # fewer matches than this -> widen the search
     max_search_attempts: int = 3
     max_letter_revisions: int = 1  # extra drafts after the first one
+    progress_callback: Optional[Any] = None
 
 
 # ----------------------------

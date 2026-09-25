@@ -3,10 +3,18 @@ import uuid
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.checkpoint.sqlite import SqliteSaver
+try:
+    from langgraph.checkpoint.sqlite import SqliteSaver
+except ImportError:
+    try:
+        from langgraph_checkpoint_sqlite import SqliteSaver
+    except ImportError:
+        SqliteSaver = None
+
 from langgraph.types import Command
 
 from agents.errors import TransientError, UserFacingError
+from agents.graph.runtime import set_current_context
 from agents.graph.state import AgentContext
 from agents.graph.workflow import build_graph
 from conftest import FAST_RETRY, FakeServices, make_jobs
@@ -20,9 +28,12 @@ def new_thread():
 
 def run(graph, graph_input, config, context):
     """Run until the graph finishes or pauses; return streamed progress messages."""
+    set_current_context(context)
+    if "context" not in config.get("configurable", {}):
+        config.setdefault("configurable", {})["context"] = context
     messages = []
     for _ns, mode, chunk in graph.stream(
-        graph_input, config, context=context, stream_mode=["custom", "updates"], subgraphs=True
+        graph_input, config, stream_mode=["custom", "updates"], subgraphs=True
     ):
         if mode == "custom":
             messages.append(chunk["message"])
@@ -207,6 +218,9 @@ def test_crashed_run_resumes_from_checkpoint_without_redoing_work(tmp_path):
     the failed branch. Resume parsing, job search and the other 4 job
     analyses come from the checkpoint.
     """
+    if SqliteSaver is None:
+        pytest.skip("langgraph-checkpoint-sqlite not installed")
+
     db = tmp_path / "checkpoints.sqlite"
     fake = FakeServices()
     context = AgentContext(services=fake.as_services())

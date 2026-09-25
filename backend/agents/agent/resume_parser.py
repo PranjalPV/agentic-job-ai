@@ -1,10 +1,9 @@
-from langgraph.runtime import Runtime
-
+from agents.graph.runtime import Runtime, get_runtime
 from agents.errors import UserFacingError
 from agents.utils import emit_progress
 
 
-def parse_resume(state, runtime: Runtime):
+def parse_resume(state, runtime: Runtime = None):
     """
     LangGraph node:
     Resume text -> structured profile (Gemini)
@@ -13,8 +12,9 @@ def parse_resume(state, runtime: Runtime):
     if not resume_text:
         raise UserFacingError("The uploaded resume has no readable text.")
 
+    r = get_runtime(runtime)
     emit_progress("Reading your resume...", stage="parse_resume")
-    parsed = runtime.context.services.parse_resume(resume_text)
+    parsed = r.context.services.parse_resume(resume_text)
 
     if not parsed.get("skills") and not parsed.get("suggested_role"):
         raise UserFacingError(

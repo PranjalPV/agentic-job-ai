@@ -1,7 +1,6 @@
 import json
 
-from langgraph.runtime import Runtime
-
+from agents.graph.runtime import Runtime, get_runtime
 from agents.errors import InvalidLLMOutput
 from agents.utils import emit_progress, logger
 
@@ -71,11 +70,12 @@ def candidate_facts(parsed_resume):
     }, ensure_ascii=False)
 
 
-def write_cover_letter(state, runtime: Runtime):
+def write_cover_letter(state, runtime: Runtime = None):
     """
     LangGraph node (cover letter subgraph):
     Write a draft, or rewrite it using the reviewer's feedback (Groq)
     """
+    r = get_runtime(runtime)
     job = state["job"]
     drafts = state.get("drafts", 0)
 
@@ -102,7 +102,7 @@ Reviewer feedback to fix:
 
 Rewrite the letter fixing every point in the feedback."""
 
-    letter = runtime.context.services.llm_text(WRITER_PROMPT, prompt).strip()
+    letter = r.context.services.llm_text(WRITER_PROMPT, prompt).strip()
     if not letter:
         letter = template_cover_letter(job, state["parsed_resume"], state.get("missing_skills", []))
 
@@ -113,11 +113,12 @@ Rewrite the letter fixing every point in the feedback."""
     return {"draft": letter, "drafts": drafts + 1}
 
 
-def review_cover_letter(state, runtime: Runtime):
+def review_cover_letter(state, runtime: Runtime = None):
     """
     LangGraph node (cover letter subgraph):
     LLM reviewer checks the draft against the resume facts
     """
+    r = get_runtime(runtime)
     job = state["job"]
     prompt = f"""Candidate profile (ground truth):
 {candidate_facts(state["parsed_resume"])}
@@ -141,7 +142,7 @@ Answer with JSON exactly like:
 Score from 1 (poor) to 5 (excellent). Approve only if score >= 4 and there are no invented facts."""
 
     try:
-        review = runtime.context.services.llm_json(REVIEWER_PROMPT, prompt)
+        review = r.context.services.llm_json(REVIEWER_PROMPT, prompt)
     except InvalidLLMOutput as e:
         review = None
         error = e
@@ -161,9 +162,10 @@ Score from 1 (poor) to 5 (excellent). Approve only if score >= 4 and there are n
     return {"review_score": score, "approved": approved, "feedback": feedback}
 
 
-def route_after_review(state, runtime: Runtime):
+def route_after_review(state, runtime: Runtime = None):
     """Conditional edge: loop back for a rewrite until approved or out of revisions."""
-    if state.get("approved") or state.get("drafts", 0) > runtime.context.max_letter_revisions:
+    r = get_runtime(runtime)
+    if state.get("approved") or state.get("drafts", 0) > r.context.max_letter_revisions:
         return "finalize_cover_letter"
     return "write_cover_letter"
 

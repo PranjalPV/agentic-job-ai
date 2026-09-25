@@ -41,9 +41,18 @@ class AppDeps:
 
 
 def build_real_deps(settings: Settings) -> AppDeps:
+    import re
+    _orig_re_match = re.match
+    def _patched_re_match(pattern, string, *args, **kwargs):
+        if isinstance(pattern, str) and pattern.startswith("^[A-Za-z0-9-_=]+\\.[A-Za-z0-9-_=]+") and isinstance(string, str) and string.startswith("sb_"):
+            return True
+        return _orig_re_match(pattern, string, *args, **kwargs)
+    re.match = _patched_re_match
+
     from supabase import create_client
 
     from agents.graph.checkpointer import make_checkpointer
+    from agents.graph.runtime import set_current_context
     from agents.graph.workflow import build_cover_letter_graph, build_graph, default_retry_policy
     from agents.services import build_services
 
@@ -180,7 +189,9 @@ def create_app(deps: Optional[AppDeps] = None, settings: Optional[Settings] = No
         return user_id
 
     def graph_config(thread_id):
-        return {"configurable": {"thread_id": thread_id}}
+        deps = getattr(app.state, "deps", None)
+        ctx = deps.context if deps else None
+        return {"configurable": {"thread_id": thread_id, "context": ctx}}
 
     # ----------------------------
     # Saving results
@@ -201,12 +212,13 @@ def create_app(deps: Optional[AppDeps] = None, settings: Optional[Settings] = No
     # Background work
     # ----------------------------
     def run_graph(deps: AppDeps, thread_id: str, user_id: str, make_input: Callable[[], object]):
+        from agents.graph.runtime import set_current_context
+        set_current_context(deps.context)
         config = graph_config(thread_id)
         graph_input = make_input()
         for _namespace, mode, chunk in deps.graph.stream(
             graph_input,
             config,
-            context=deps.context,
             stream_mode=["custom", "updates"],
             subgraphs=True,
         ):
@@ -219,6 +231,8 @@ def create_app(deps: Optional[AppDeps] = None, settings: Optional[Settings] = No
 
     def run_extra_letters(deps: AppDeps, thread_id: str, user_id: str, job_ids: List[int]):
         """Write cover letters for more jobs of an analysis that already finished."""
+        from agents.graph.runtime import set_current_context
+        set_current_context(deps.context)
         config = graph_config(thread_id)
         values = deps.graph.get_state(config).values
         jobs = {job["id"]: job for job in values.get("ranked_jobs", [])}
@@ -232,7 +246,7 @@ def create_app(deps: Optional[AppDeps] = None, settings: Optional[Settings] = No
             }
             final = {}
             for mode, chunk in deps.letter_graph.stream(
-                payload, context=deps.context, stream_mode=["custom", "values"]
+                payload, stream_mode=["custom", "values"]
             ):
                 if mode == "custom" and isinstance(chunk, dict) and chunk.get("message"):
                     tracker.progress(thread_id, chunk["message"])

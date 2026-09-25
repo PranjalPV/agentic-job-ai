@@ -41,9 +41,14 @@ def emit_progress(message: str, **extra):
     """
     logger.info(message)
     try:
-        from langgraph.config import get_stream_writer
+        from agents.graph.runtime import get_active_stream_writer, get_current_context
 
-        writer = get_stream_writer()
-    except RuntimeError:
-        return
-    writer({"message": message, **extra})
+        writer = get_active_stream_writer()
+        if writer:
+            writer({"message": message, **extra})
+
+        ctx = get_current_context()
+        if ctx and getattr(ctx, "progress_callback", None):
+            ctx.progress_callback(message)
+    except Exception:
+        pass

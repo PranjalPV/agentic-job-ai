@@ -1,4 +1,4 @@
-from langgraph.runtime import Runtime
+from agents.graph.runtime import Runtime, get_runtime
 
 from agents.errors import InvalidLLMOutput
 from agents.utils import emit_progress, logger
@@ -47,11 +47,12 @@ def validate_roadmap(roadmap):
     return phases
 
 
-def build_roadmap(state, runtime: Runtime):
+def build_roadmap(state, runtime: Runtime = None):
     """
     LangGraph node (job analysis subgraph):
     Week-by-week learning plan for the missing skills (Groq)
     """
+    r = get_runtime(runtime)
     job = state["job"]
     missing_skills = state["missing_skills"]
 
@@ -84,7 +85,7 @@ Rules:
 }}"""
 
     try:
-        parsed = runtime.context.services.llm_json(SYSTEM_PROMPT, prompt)
+        parsed = r.context.services.llm_json(SYSTEM_PROMPT, prompt)
         roadmap, source = validate_roadmap(parsed.get("roadmap")), "groq"
     except InvalidLLMOutput as e:
         logger.warning("Roadmap output invalid for %s: %s", job.get("title"), e)

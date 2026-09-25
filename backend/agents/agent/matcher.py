@@ -1,8 +1,8 @@
 import numpy as np
 from langgraph.graph import END
-from langgraph.runtime import Runtime
 from langgraph.types import Send
 
+from agents.graph.runtime import Runtime, get_runtime
 from agents.agent.job_discovery import search_queries
 from agents.utils import emit_progress, logger
 
@@ -31,23 +31,24 @@ def profile_text(parsed_resume):
     return ". ".join(p for p in parts if p)
 
 
-def match_jobs(state, runtime: Runtime):
+def match_jobs(state, runtime: Runtime = None):
     """
     LangGraph node:
     Rank all jobs found so far against the resume profile (local embeddings)
     """
+    r = get_runtime(runtime)
     jobs = dedupe_jobs(state.get("job_results", []))
     if not jobs:
         emit_progress("No jobs found yet", stage="match")
         return {"ranked_jobs": []}
 
-    vectors = np.asarray(runtime.context.services.embed(
+    vectors = np.asarray(r.context.services.embed(
         [profile_text(state["parsed_resume"])]
         + [f"{job['title']}. {job['description']}" for job in jobs]
     ))
     scores = vectors[1:] @ vectors[0]   # vectors are normalized -> cosine similarity
 
-    order = np.argsort(-scores)[: runtime.context.top_n_jobs]
+    order = np.argsort(-scores)[: r.context.top_n_jobs]
     ranked = []
     for rank, idx in enumerate(order):
         job = dict(jobs[idx])
@@ -56,7 +57,7 @@ def match_jobs(state, runtime: Runtime):
         ranked.append(job)
 
     # Save newly discovered live jobs into shared vector database cache
-    if runtime.context.services.cache_jobs and jobs:
+    if r.context.services.cache_jobs and jobs:
         live_indices = [
             i for i, job in enumerate(jobs)
             if not (job.get("source") or "").startswith("Cached")
@@ -65,7 +66,7 @@ def match_jobs(state, runtime: Runtime):
             live_jobs = [jobs[i] for i in live_indices]
             live_vectors = [vectors[i + 1] for i in live_indices]
             try:
-                runtime.context.services.cache_jobs(live_jobs, live_vectors)
+                r.context.services.cache_jobs(live_jobs, live_vectors)
             except Exception as e:
                 logger.info("Background cache write skipped: %s", e)
 
@@ -73,20 +74,21 @@ def match_jobs(state, runtime: Runtime):
     return {"ranked_jobs": ranked}
 
 
-def route_after_matching(state, runtime: Runtime):
+def route_after_matching(state, runtime: Runtime = None):
     """
     Conditional edge:
     - too few matches and attempts left -> search again with a broader query
     - no matches at all -> stop
     - otherwise -> analyze every top job in parallel
     """
+    r = get_runtime(runtime)
     ranked = state.get("ranked_jobs", [])
 
     max_attempts = min(
-        runtime.context.max_search_attempts,
+        r.context.max_search_attempts,
         len(search_queries(state.get("parsed_resume", {}))),
     )
-    if len(ranked) < runtime.context.min_jobs and state.get("search_attempts", 0) < max_attempts:
+    if len(ranked) < r.context.min_jobs and state.get("search_attempts", 0) < max_attempts:
         return "build_search_query"
 
     if not ranked:

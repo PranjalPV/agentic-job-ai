@@ -1,8 +1,7 @@
 import json
 from typing import Any, Dict, List
 
-from langgraph.runtime import Runtime
-
+from agents.graph.runtime import Runtime, get_runtime
 from agents.errors import InvalidLLMOutput
 from agents.utils import emit_progress, logger
 
@@ -68,11 +67,12 @@ def fallback_tailoring(job: Dict[str, Any], parsed_resume: Dict[str, Any], missi
     }
 
 
-def tailor_resume(state: Dict[str, Any], runtime: Runtime) -> Dict[str, Any]:
+def tailor_resume(state: Dict[str, Any], runtime: Runtime = None) -> Dict[str, Any]:
     """
     LangGraph node:
     Generates ATS match scoring and tailored resume bullet points for a selected job.
     """
+    r = get_runtime(runtime)
     job = state["job"]
     parsed_resume = state["parsed_resume"]
     missing_skills = state.get("missing_skills", [])
@@ -112,7 +112,7 @@ Rules:
 
     source = "groq"
     try:
-        data = runtime.context.services.llm_json(SYSTEM_PROMPT, prompt)
+        data = r.context.services.llm_json(SYSTEM_PROMPT, prompt)
         score = int(data.get("ats_score", 70))
         matched = [str(k) for k in data.get("matched_keywords", []) if k]
         missing = [str(k) for k in data.get("missing_critical_keywords", []) if k]

@@ -50,11 +50,11 @@ def build_job_analysis_graph(retry_policy):
     graph = StateGraph(
         JobAnalysisState,
         AgentContext,
-        input_schema=JobAnalysisInput,
-        output_schema=JobAnalysisOutput,
+        input=JobAnalysisInput,
+        output=JobAnalysisOutput,
     )
-    graph.add_node("find_skill_gap", find_skill_gap, retry_policy=retry_policy)
-    graph.add_node("build_roadmap", build_roadmap, retry_policy=retry_policy)
+    graph.add_node("find_skill_gap", find_skill_gap, retry=retry_policy)
+    graph.add_node("build_roadmap", build_roadmap, retry=retry_policy)
 
     graph.add_edge(START, "find_skill_gap")
     graph.add_conditional_edges("find_skill_gap", route_after_skill_gap, ["build_roadmap", END])
@@ -67,11 +67,11 @@ def build_cover_letter_graph(retry_policy):
     graph = StateGraph(
         CoverLetterState,
         AgentContext,
-        input_schema=CoverLetterInput,
-        output_schema=CoverLetterOutput,
+        input=CoverLetterInput,
+        output=CoverLetterOutput,
     )
-    graph.add_node("write_cover_letter", write_cover_letter, retry_policy=retry_policy)
-    graph.add_node("review_cover_letter", review_cover_letter, retry_policy=retry_policy)
+    graph.add_node("write_cover_letter", write_cover_letter, retry=retry_policy)
+    graph.add_node("review_cover_letter", review_cover_letter, retry=retry_policy)
     graph.add_node("finalize_cover_letter", finalize_cover_letter)
 
     graph.add_edge(START, "write_cover_letter")
@@ -97,7 +97,7 @@ def build_graph(checkpointer=None, retry_policy=None):
 
     graph = StateGraph(JobAgentState, AgentContext)
 
-    graph.add_node("parse_resume", parse_resume, retry_policy=retry_policy)
+    graph.add_node("parse_resume", parse_resume, retry=retry_policy)
     graph.add_node("search_cache", search_cache)
     graph.add_node("build_search_query", build_search_query)
     for source in JOB_SOURCES:
@@ -106,7 +106,7 @@ def build_graph(checkpointer=None, retry_policy=None):
     graph.add_node("analyze_job", build_job_analysis_graph(retry_policy))
     graph.add_node("select_jobs", select_jobs)
     graph.add_node("cover_letter", build_cover_letter_graph(retry_policy))
-    graph.add_node("tailor_resume", tailor_resume, retry_policy=retry_policy)
+    graph.add_node("tailor_resume", tailor_resume, retry=retry_policy)
 
     graph.add_edge(START, "parse_resume")
     graph.add_edge("parse_resume", "search_cache")
